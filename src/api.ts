@@ -100,6 +100,29 @@ export async function fetchSessionState(conversationId: string): Promise<Session
   return (await res.json()) as SessionStateResponse;
 }
 
+export interface HistoryMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: number;
+}
+
+/** Restore the chat window from persisted conversation history after a page refresh. */
+export async function fetchHistory(
+  conversationId: string,
+): Promise<{ conversation_id: string; messages: HistoryMessage[] }> {
+  const res = await fetch('/history', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'makers-conversation-id': conversationId,
+    },
+    body: JSON.stringify({ conversation_id: conversationId }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as { conversation_id: string; messages: HistoryMessage[] };
+}
+
 export async function stopAgent(conversationId: string): Promise<void> {
   try {
     await fetch('/stop', {

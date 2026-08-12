@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchSessionState, sendChatStream, stopAgent } from './api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { fetchHistory, fetchSessionState, sendChatStream, stopAgent } from './api';
 import type { ChatMessage, SessionStateResponse } from './types';
 import { I18nProvider, useT } from './i18n';
 
@@ -27,6 +29,7 @@ function AppInner() {
   const [error, setError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<SessionStateResponse | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,13 +49,32 @@ function AppInner() {
     void refreshProbe(conversationId);
   }, [conversationId, refreshProbe]);
 
+  // Restore persisted messages from /history on mount and when switching conversations.
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    setMessages([]);
+    void fetchHistory(conversationId)
+      .then(({ messages: history }) => {
+        if (cancelled) return;
+        setMessages(history.map(m => ({ id: m.id, role: m.role, content: m.content })));
+      })
+      .catch(() => {
+        // No history available — keep the empty state.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || historyLoading) return;
     setInput('');
     setError(null);
     setLoading(true);
@@ -79,7 +101,7 @@ function AppInner() {
         setError(err.message);
       },
     });
-  }, [conversationId, input, loading, refreshProbe]);
+  }, [conversationId, input, loading, historyLoading, refreshProbe]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -174,7 +196,13 @@ function AppInner() {
                 <span className={`msg-role${msg.role === 'user' ? ' is-user' : ''}`}>
                   {msg.role === 'user' ? 'you' : 'agent'}
                 </span>
-                <span className={`msg-body${msg.streaming ? ' streaming' : ''}`}>{msg.content}</span>
+                <div className={`msg-body${msg.role === 'user' ? '' : ' markdown'}${msg.streaming ? ' streaming' : ''}`}>
+                  {msg.role === 'user' ? (
+                    msg.content
+                  ) : (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content || ''}</ReactMarkdown>
+                  )}
+                </div>
               </div>
             ))}
             {toolNote && <span className="tool-chip">{t('chat.tool')}: {toolNote}</span>}
